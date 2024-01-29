@@ -38,7 +38,7 @@ class Data(object):
     def data_exists(self, code="000001", date="20231207"):
         return os.path.isfile(os.path.join(self.config.path_pkl_data, code, date + '.pkl'))
 
-    def obtain_data(self, code, date, start_index=None, do_normalization=None):
+    def obtain_data(self, code, date, start_index=None, do_normalization=True):
         with open(os.path.join(self.config.path_pkl_data, code, date + '.pkl'), 'rb') as f:
             self.data = pickle.load(f)
         assert self.data.shape[0] == 239, \
@@ -85,6 +85,20 @@ class Data(object):
         # Keep normalization units
         self.basis_price = self.backtest_data.loc[self.start_index, "latest_price"]
         self.basis_volume = self.data['basis_volume'].values[0]
+
+        # Approximation: Average price change 2% * 50 = 1.0
+        self.data[self.price_5level_features] = \
+            (self.data[self.price_5level_features] - self.basis_price) / self.basis_price * 50
+        self.data[self.other_price_features] = \
+            (self.data[self.other_price_features] - self.basis_price) / self.basis_price * 50
+        self.data[self.price_delta_features] = \
+            self.data[self.price_delta_features] / self.basis_price * 10
+
+        # Such that the volumes are equally distributed in the range [-1, 1]
+        self.data[self.volume_5level_features] = \
+            self.data[self.volume_5level_features] / self.basis_volume * 100
+        self.data[self.other_volume_features] = \
+            self.data[self.other_volume_features] / self.basis_volume * 100
 
     def _set_horizon(self, start_index):
         self.start_index = start_index
