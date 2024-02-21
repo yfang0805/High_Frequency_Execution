@@ -1,0 +1,2 @@
+,learning_rate,linear_reg,architecture,parallel_id,trn_mean_bp_first,trn_mean_bp_last,trn_mean_rew_first,trn_mean_rew_last,val_mean_bp_first,val_mean_bp_last,val_mean_rew_first,val_mean_rew_last
+0,2e-05,0.1,MLPNetwork_complex,0,-1.4862727252332024,-0.4396089642815548,17.22558902488534,7.5757055929457,11.65200227819742,-1.6559826492040977,-5.015601084274262,7.441384779137829

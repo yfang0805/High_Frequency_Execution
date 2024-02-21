@@ -3,7 +3,7 @@ import pickle
 import pandas as pd
 import numpy as np
 
-from config import DefaultConfig
+from constants import DefaultConfig
 from data_wrapper import Data
 class ExecutionEnv(object):
     
@@ -22,13 +22,14 @@ class ExecutionEnv(object):
         for code in self.config.code_list:
             for date in self.config.date_list:
                 if self.data.data_exists(code, date):
+                    
                     code_date_list.append((code, date))
         return code_date_list
     
     def reset(self, code=None, date=None, start_index=None):
 
         count = 0
-
+        
         while True:
             if code is None and date is None:
                 # Uniformly randomly select a code and date
@@ -38,16 +39,15 @@ class ExecutionEnv(object):
                 self.current_code, self.current_date = code, date
             
             try:
+                # if self.data.data_exists(self.current_code, self.current_date):
                 self.data.obtain_data(self.current_code, self.current_date, start_index)
-                print(f"Obtain: code={self.current_code} date={self.current_date}")
+                # print(f"Obtain: code={self.current_code} date={self.current_date}")
                 break
-            except AssertionError as e:
+            except:
                 count += 1
                 print('Invalid: code={} date={}'.format(self.current_code, self.current_date))
                 if count > 100:
                     raise ValueError("code={} date={} is invalid".format(code, date))
-            except Exception as e:
-                raise e
             
         self.cash = 0
         self.total_quantity = self.config.simulation_volume_ratio * self.data.basis_volume

@@ -3,22 +3,14 @@ import pdb
 import pickle
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
+
 from pathos.multiprocessing import ProcessingPool as Pool
 
-from config import CODE_LIST, DATE_LIST
-
-
-
+import warnings
+warnings.filterwarnings('ignore')
 NUM_CORES = 40
 
-class DefaultConfig(object):
-
-    path_raw_data = './data/tick_data_csv'
-    path_pkl_data = './data/bar_data_pkl'
-    result_path = 'results/exp_env'
-
-    code_list = CODE_LIST
-    date_list = DATE_LIST
 
 
 class DataPrepare(object):
@@ -37,21 +29,53 @@ class DataPrepare(object):
 
         os.makedirs(self.config.path_pkl_data, exist_ok=True)
         file_paths = self.obtain_file_paths()
-
-        pool = Pool(NUM_CORES)
-        res = pool.map(self.process_file, file_paths)
-        pd.DataFrame(res).to_csv('data_generation_report.csv')
+        
+        # pool = Pool(NUM_CORES)
+        # res = pool.map(self.process_file, file_paths)
+        info = []
+        for csv_path, pkl_path in tqdm(file_paths):
+            if os.path.exists(pkl_path):
+                continue
+            res = self.process_file(csv_path, pkl_path)
+            info.append(res)
+        pd.DataFrame(info).to_csv('data_generation_report.csv')
 
     def download_raw_data(self):
 
         raise NotImplementedError
+    
 
-    def process_file(self, paths, debug=True):
+    def process_file(self, csv_path, pkl_path, debug=True):
+        '''
+        Input:
+            The csv needs to contain
+            [tradeDate, dataTime, volume_dt, value_dt, lastPrice
+            askPrice1 to askPrice5, askVolume1 to askVolume5, bidPrice1 to bidPrice5, bidVolume1 to bidVolume5]
 
-        csv_path, pkl_path = paths
+        Return:
+            pkl_file with
+            
+            ['bidPrice1', 'bidVolume1', 'bidPrice2', 'bidVolume2', 'bidPrice3', 'bidVolume3', 'bidPrice4', 'bidVolume4', 'bidPrice5', 'bidVolume5', 
+            'askPrice1', 'askVolume1', 'askPrice2', 'askVolume2', 'askPrice3', 'askVolume3', 'askPrice4', 'askVolume4', 'askPrice5', 'askVolume5']
+
+            ['max_last_price', 'min_last_price', 'ask1_deal_volume', 'bid1_deal_volume']
+            
+            # Normalization constant
+            ['basis_price', 'basis_volume']
+
+            # Bar information
+            ['high_price','low_price', 'high_low_price_diff', 'open_price', 'close_price', 'volume', 'vwap']
+
+            # LOB features
+            ['ask_bid_spread','ab_volume_misbalance', 'transaction_net_volume', 'volatility', 'trend', 'immediate_market_order_cost_ask', 'immediate_market_order_cost_bid']
+
+            # new LOB features
+            ['VOLR', 'PCTN_1min', 'MidMove_1min', 'BSP', 'weighted_price', 'order_imblance', 'trend_strength', 'time', 'time_diff']
+
+        '''
 
         # Step 1: Read data
-        data = pd.read_csv(csv_path, index_col=0)
+        data = pd.read_csv(csv_path)
         data["value"] = data["value_dt"].cumsum()
         data["volume"] = data["volume_dt"].cumsum()
 
@@ -62,24 +86,22 @@ class DataPrepare(object):
             return dict(csv_path=csv_path, pkl_path=pkl_path, status='EMPTY')
         if data['volume'].max() <= 0:
             return dict(csv_path=csv_path, pkl_path=pkl_path, status='NO_VOL')
-        if data['lastPrice'][data['lastPrice'] > 0].mean() >= 1.09 * data['prevClosePrice'].values[0]:
+        if data['lastPrice'][data['lastPrice'] > 0].mean() >= 1.09 * data['lastPrice'][data['lastPrice'] > 0].values[0]:
             return dict(csv_path=csv_path, pkl_path=pkl_path, status='LIMIT_UP')
-        if data['lastPrice'][data['lastPrice'] > 0].mean() <= 0.91 * data['prevClosePrice'].values[0]:
+        if data['lastPrice'][data['lastPrice'] > 0].mean() <= 0.91 * data['lastPrice'][data['lastPrice'] > 0].values[0]:
             return dict(csv_path=csv_path, pkl_path=pkl_path, status='LIMIT_DO')
 
         if debug:
             print('Current process: {} {} Shape: {}'.format(csv_path, pkl_path, data.shape))
-            assert csv_shape1 == 31
+            assert csv_shape1 == 28
 
         # Step 2: Formatting the timeline
         data['tradeDate']= data['tradeDate'].apply(lambda x: str(x))
         trade_date = data.iloc[0]["tradeDate"]
         data['dataTime'] = data['dataTime'].apply(lambda x: str(x))
-        data.index = pd.to_datetime(data['tradeDate'] + ' ' + data['dataTime'], format='%Y%m%d %H%M%S%f')
+        data.index = pd.to_datetime(data['tradeDate'] + ' ' + data['dataTime'], format='%Y-%m-%d %H:%M:%S')
         data['time'] = data.index
         data = data.resample('3S', closed='right', label='right').last().fillna(method='ffill')
-        
-        
 
         # Exclude call auction
         data = data[data['time'].between(trade_date + ' 09:30:00', trade_date + ' 14:57:00')]
@@ -119,7 +141,7 @@ class DataPrepare(object):
 
         # Step 4: Generate state features
         # Normalization constant
-        bar_data['basis_price'] = data['openPrice'].values[0]
+        bar_data['basis_price'] = data['lastPrice'].values[0]
         bar_data['basis_volume'] = data['volume'].values[-1]         # TODO: change this to total volume of the last day instead of the current day
 
         # Bar information
@@ -161,10 +183,12 @@ class DataPrepare(object):
         # Step 5: Save to pickle
         with open(pkl_path, 'wb') as f:
             pickle.dump(bar_data, f, pickle.HIGHEST_PROTOCOL)
+            print(f"Success process Data and save at {pkl_path}")
 
         return dict(csv_path=csv_path, pkl_path=pkl_path, 
             csv_shape0=csv_shape0, csv_shape1=csv_shape1, 
             res_shape0=bar_data.shape[0], res_shape1=bar_data.shape[1])
+    
 
     @staticmethod
     def _calculate_immediate_market_order_cost(bar_data, direction='ask'):
@@ -330,9 +354,30 @@ class DataPrepare(object):
 
         return TS
 
+
 def run_prepare_data():
+    class DefaultConfig(object):
+        path_raw_data = './data/toy_data/tick_data_csv'
+        path_pkl_data = './data/toy_data/bar_data_pkl'
+
+        code_list = ["000001"]
+        date_list = ["20231207"]
+    
+    config = DefaultConfig()
+    dataprepare = DataPrepare(config)
+
+
+def run_prepare_data_CSI300():
+    from constants import CODE_LIST_CSI300, DATE_LIST_202312, DATE_LIST_202312_Validation
+    class DefaultConfig(object):
+        path_raw_data = './data/CSI300/tick_data_csv'
+        path_pkl_data = './data/CSI300/bar_data_pkl'
+
+        code_list = CODE_LIST_CSI300
+        date_list = DATE_LIST_202312 + DATE_LIST_202312_Validation
+
     config = DefaultConfig()
     dataprepare = DataPrepare(config)
 
 if __name__ == "__main__":
-    run_prepare_data()
+    run_prepare_data_CSI300()

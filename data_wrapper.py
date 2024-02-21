@@ -1,9 +1,7 @@
 import os
 import pickle
 import numpy as np
-
-from config import DefaultConfig
-
+import matplotlib.pyplot as plt
 
 class Data(object):
     price_5level_features = [
@@ -36,13 +34,15 @@ class Data(object):
 
     
     def data_exists(self, code="000001", date="20231207"):
-        return os.path.isfile(os.path.join(self.config.path_pkl_data, code, date + '.pkl'))
+        # print(os.path.join(self.config.path_pkl_data, code, date + '.pkl'))
+        return os.path.exists(os.path.join(self.config.path_pkl_data, code, date + '.pkl'))
 
-    def obtain_data(self, code, date, start_index=None, do_normalization=True):
+    def obtain_data(self, code, date, start_index=None, do_normalization=True, ):
         with open(os.path.join(self.config.path_pkl_data, code, date + '.pkl'), 'rb') as f:
             self.data = pickle.load(f)
         assert self.data.shape[0] == 239, \
             'The data should be of the shape (239, 42), instead of {}'.format(self.data.shape)
+        
         if start_index is None:
             start_index = self._random_valid_start_index()
             self._set_horizon(start_index)
@@ -56,6 +56,27 @@ class Data(object):
     def step(self):
         self.current_index += 1
     
+    def plot(self, code="000001", date="20231207", save=True, normalization=True):
+        if self.data_exists(code=code, date=date):
+            with open(os.path.join(self.config.path_pkl_data, code, date + '.pkl'), 'rb') as f:
+                data = pickle.load(f)
+        else:
+            print("No data to plot. Please load data first.")
+            return
+        data['latest_price'] = (data['askPrice1'] + data['bidPrice1']) / 2
+
+    
+        plt.figure(figsize=(10, 6))
+        data['latest_price'].plot(title=f'Stock {code}: Price on {date}')
+        plt.xlabel('Index')
+        plt.ylabel('Price')
+        plt.grid(True)
+        plt.show()
+
+
+        if save:
+            plt.savefig(f'pictures/{code}_{date}.png')
+
     def obtain_features(self, do_flatten=True):
         features = self.data.loc[self.current_index - self.config.simulation_loockback_horizon + 1: self.current_index, 
             self.config.simulation_features][::-1].values
@@ -124,10 +145,12 @@ class Data(object):
             return True
 
 def run_Data():
-    
-    config = DefaultConfig()
+    from constants import CSI300Config
+    config = CSI300Config()
     data = Data(config)
-    data.obtain_data(code="000001", date="20231207")
+
+    print(data.obtain_data(code="000001", date="20231204"))
+    data.plot(code="000001", date="20231219")
     print("Total Length:", len(data.data))
     print("Index:", data.current_index)
     data.step()
